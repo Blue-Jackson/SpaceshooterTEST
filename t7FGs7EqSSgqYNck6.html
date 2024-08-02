@@ -1,0 +1,404 @@
+<!DOCTYPE html><html><head><base href="https://retro-space-shooter.game.com/%20use%20these%20sprites%20as%20inspiration">
+<meta charset="UTF-8">
+<title>Retro Space Shooter</title>
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-family: 'Press Start 2P', cursive;
+  }
+  #gameCanvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&amp;display=swap" rel="stylesheet">
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Set canvas size to full screen
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// Game state
+let score = 0;
+let gameOver = false;
+let gameStarted = false;
+let health = 100;
+
+// Player ship
+const player = {
+  x: canvas.width / 2,
+  y: canvas.height - 80,
+  width: 80,
+  height: 80,
+  speed: 5
+};
+
+// Bullets
+let bullets = [];
+const bulletSpeed = 7;
+let lastBulletTime = 0;
+const bulletCooldown = 100; // 100ms between bullets for rapid fire
+
+// Enemies
+let enemies = [];
+const enemySpeed = 1;
+
+// Explosions
+let explosions = [];
+
+// Stars
+const stars = [];
+const numStars = 100;
+const starSpeed = 2;
+
+// Key states
+const keys = {};
+
+// Mouse position and state
+let mouseX = canvas.width / 2;
+let mouseY = canvas.height / 2;
+let mouseDown = false;
+
+// Sprite definitions
+const sprites = {
+  player: [
+    [0,0,0,0,0,1,1,1,0,0,0,0,0],
+    [0,0,0,0,1,1,1,1,1,0,0,0,0],
+    [0,0,0,1,1,1,1,1,1,1,0,0,0],
+    [0,0,1,1,0,1,1,1,0,1,1,0,0],
+    [0,1,1,1,1,1,1,1,1,1,1,1,0],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,1,0,0,0,0,0,0,0,1,0,1]
+  ],
+  enemy1: [
+    [0,0,0,0,1,1,1,1,1,0,0,0,0],
+    [0,0,0,1,2,2,2,2,2,1,0,0,0],
+    [0,0,1,2,1,2,2,2,1,2,1,0,0],
+    [0,1,2,2,2,1,2,1,2,2,2,1,0],
+    [1,2,2,2,2,2,1,2,2,2,2,2,1],
+    [1,2,1,2,2,2,2,2,2,2,1,2,1],
+    [1,2,2,1,2,2,2,2,2,1,2,2,1],
+    [1,2,2,2,1,1,1,1,1,2,2,2,1],
+    [0,1,1,1,2,2,2,2,2,1,1,1,0],
+    [0,0,1,1,1,1,1,1,1,1,1,0,0]
+  ],
+  enemy2: [
+    [0,0,1,1,0,0,0,0,0,1,1,0,0],
+    [0,1,2,2,1,0,0,0,1,2,2,1,0],
+    [1,2,2,2,2,1,0,1,2,2,2,2,1],
+    [1,2,1,1,2,2,1,2,2,1,1,2,1],
+    [1,2,2,2,2,2,2,2,2,2,2,2,1],
+    [0,1,1,2,2,1,2,1,2,2,1,1,0],
+    [0,0,1,2,2,2,2,2,2,2,1,0,0],
+    [0,1,2,2,1,1,1,1,1,2,2,1,0],
+    [1,2,2,1,0,0,0,0,0,1,2,2,1],
+    [0,1,1,0,0,0,0,0,0,0,1,1,0]
+  ]
+};
+
+function drawSprite(sprite, x, y, scale = 4, primaryColor = '#00f', secondaryColor = '#0af') {
+  sprite.forEach((row, i) => {
+    row.forEach((pixel, j) => {
+      if (pixel === 1) {
+        ctx.fillStyle = primaryColor;
+        ctx.fillRect(x + j * scale, y + i * scale, scale, scale);
+      } else if (pixel === 2) {
+        ctx.fillStyle = secondaryColor;
+        ctx.fillRect(x + j * scale, y + i * scale, scale, scale);
+      }
+    });
+  });
+}
+
+// Initialize stars
+for (let i = 0; i < numStars; i++) {
+  stars.push({
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height,
+    size: Math.random() * 2 + 1,
+    speed: Math.random() * 2 + 1
+  });
+}
+
+// Event listeners
+document.addEventListener('keydown', (e) => {
+  keys[e.code] = true;
+  if (e.code === 'Enter') {
+    if (!gameStarted) {
+      gameStarted = true;
+    } else if (gameOver) {
+      resetGame();
+    }
+  }
+});
+document.addEventListener('keyup', (e) => keys[e.code] = false);
+
+// Mouse move event listener
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  mouseX = e.clientX - rect.left;
+  mouseY = e.clientY - rect.top;
+});
+
+// Mouse down event listener for shooting
+canvas.addEventListener('mousedown', (e) => {
+  mouseDown = true;
+});
+
+// Mouse up event listener to stop shooting
+canvas.addEventListener('mouseup', (e) => {
+  mouseDown = false;
+});
+
+function drawPlayer() {
+  drawSprite(sprites.player, player.x, player.y, 4, '#00f', '#0af');
+}
+
+function drawBullets() {
+  ctx.fillStyle = '#ff0';
+  bullets.forEach(bullet => {
+    ctx.fillRect(bullet.x, bullet.y, 6, 18);
+  });
+}
+
+function drawEnemies() {
+  enemies.forEach(enemy => {
+    const colors = enemy.type === 1 ? ['#f00', '#a00'] : ['#0f0', '#0a0'];
+    drawSprite(enemy.type === 1 ? sprites.enemy1 : sprites.enemy2, enemy.x, enemy.y, 4, colors[0], colors[1]);
+  });
+}
+
+function drawStars() {
+  ctx.fillStyle = '#fff';
+  stars.forEach(star => {
+    ctx.beginPath();
+    ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function drawScore() {
+  ctx.fillStyle = '#fff';
+  ctx.font = '20px "Press Start 2P"';
+  ctx.fillText(`Score: ${score}`, 10, 30);
+}
+
+function drawHealth() {
+  const barWidth = 200;
+  const barHeight = 20;
+  const x = 10;
+  const y = 50;
+
+  // Draw background
+  ctx.fillStyle = '#333';
+  ctx.fillRect(x, y, barWidth, barHeight);
+
+  // Draw health
+  ctx.fillStyle = '#0f0';
+  ctx.fillRect(x, y, barWidth * (health / 100), barHeight);
+
+  // Draw border
+  ctx.strokeStyle = '#fff';
+  ctx.strokeRect(x, y, barWidth, barHeight);
+
+  // Draw text
+  ctx.fillStyle = '#fff';
+  ctx.font = '16px "Press Start 2P"';
+  ctx.fillText(`Health: ${health}%`, x + 10, y + 15);
+}
+
+function drawExplosions() {
+  explosions.forEach((explosion, index) => {
+    ctx.beginPath();
+    ctx.arc(explosion.x, explosion.y, explosion.radius, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, ${explosion.frame * 10}, 0, ${1 - explosion.frame / 10})`;
+    ctx.fill();
+
+    explosion.frame++;
+    explosion.radius += 2;
+
+    if (explosion.frame >= 10) {
+      explosions.splice(index, 1);
+    }
+  });
+}
+
+function update() {
+  if (gameOver || !gameStarted) return;
+
+  // Move player with mouse
+  player.x = mouseX - player.width / 2;
+  player.y = mouseY - player.height / 2;
+  
+  // Clamp player position to canvas boundaries
+  player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
+  player.y = Math.max(0, Math.min(canvas.height - player.height, player.y));
+
+  // Rapid fire
+  if (mouseDown && Date.now() - lastBulletTime > bulletCooldown) {
+    bullets.push({x: player.x + player.width / 2 - 3, y: player.y});
+    lastBulletTime = Date.now();
+  }
+
+  // Move bullets
+  bullets = bullets.filter(bullet => {
+    bullet.y -= bulletSpeed;
+    return bullet.y > 0;
+  });
+
+  // Move enemies
+  enemies.forEach(enemy => {
+    enemy.y += enemySpeed;
+    if (enemy.y > canvas.height) {
+      gameOver = true;
+      health = 0;
+    }
+  });
+
+  // Move stars
+  stars.forEach(star => {
+    star.y += star.speed;
+    if (star.y > canvas.height) {
+      star.y = 0;
+      star.x = Math.random() * canvas.width;
+    }
+  });
+
+  // Collision detection
+  enemies = enemies.filter(enemy => {
+    let enemyHit = false;
+    bullets = bullets.filter(bullet => {
+      if (bullet.x < enemy.x + enemy.width &&
+          bullet.x + 6 > enemy.x &&
+          bullet.y < enemy.y + enemy.height &&
+          bullet.y + 18 > enemy.y) {
+        enemyHit = true;
+        score += enemy.type === 1 ? 10 : 20;
+        explosions.push({
+          x: enemy.x + enemy.width / 2,
+          y: enemy.y + enemy.height / 2,
+          radius: 10,
+          frame: 0
+        });
+        return false;
+      }
+      return true;
+    });
+
+    // Check for collision with player
+    if (!enemyHit &&
+        player.x < enemy.x + enemy.width &&
+        player.x + player.width > enemy.x &&
+        player.y < enemy.y + enemy.height &&
+        player.y + player.height > enemy.y) {
+      health -= 10;
+      enemyHit = true;
+      if (health <= 0) {
+        gameOver = true;
+        health = 0;
+      }
+    }
+
+    return !enemyHit;
+  });
+
+  // Spawn new enemies
+  if (Math.random() < 0.02) {
+    enemies.push({
+      x: Math.random() * (canvas.width - 60),
+      y: 0,
+      width: 60,
+      height: 60,
+      type: Math.random() < 0.7 ? 1 : 2
+    });
+  }
+}
+
+function drawStartScreen() {
+  ctx.fillStyle = '#fff';
+  ctx.font = '40px "Press Start 2P"';
+  ctx.textAlign = 'center';
+  ctx.fillText('RETRO SPACE SHOOTER', canvas.width / 2, canvas.height / 2 - 40);
+  ctx.font = '20px "Press Start 2P"';
+  ctx.fillText('Press ENTER to Start', canvas.width / 2, canvas.height / 2 + 40);
+  ctx.fillText('Move mouse to control ship', canvas.width / 2, canvas.height / 2 + 80);
+  ctx.fillText('Hold mouse button to shoot', canvas.width / 2, canvas.height / 2 + 120);
+
+  if (Math.floor(Date.now() / 500) % 2 === 0) {
+    ctx.font = '16px "Press Start 2P"';
+    ctx.fillText('INSERT COIN', canvas.width / 2, canvas.height - 40);
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Always draw stars to create a space effect
+  drawStars();
+  
+  if (!gameStarted) {
+    drawStartScreen();
+  } else if (gameOver) {
+    ctx.fillStyle = '#fff';
+    ctx.font = '40px "Press Start 2P"';
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 20);
+    ctx.font = '20px "Press Start 2P"';
+    ctx.fillText(`Final Score: ${score}`, canvas.width / 2, canvas.height / 2 + 20);
+    ctx.fillText('Press ENTER to Restart', canvas.width / 2, canvas.height / 2 + 60);
+  } else {
+    ctx.textAlign = 'left';
+    drawPlayer();
+    drawBullets();
+    drawEnemies();
+    drawExplosions();
+    drawScore();
+    drawHealth();
+  }
+}
+
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+function resetGame() {
+  score = 0;
+  health = 100;
+  gameOver = false;
+  gameStarted = true;
+  player.x = canvas.width / 2 - player.width / 2;
+  player.y = canvas.height - 80;
+  bullets = [];
+  enemies = [];
+  explosions = [];
+}
+
+// Resize canvas when window is resized
+window.addEventListener('resize', () => {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  player.y = canvas.height - 80;
+});
+
+gameLoop();
+</script>
+
+</body></html>
